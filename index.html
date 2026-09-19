@@ -426,11 +426,26 @@
         list.appendChild(btn);
       });
     }
-    var totalAttempts = STATE.history.length;
-    byId('stat-total-attempts').textContent = totalAttempts;
-    if(totalAttempts>0){
-      var sumRate = STATE.history.reduce(function(acc,h){ return acc + (h.weightedRate!=null?h.weightedRate:h.correct/h.total); },0);
-      byId('stat-understanding').textContent = Math.round(sumRate/totalAttempts*100);
+    /* 総合理解度は、セッションごとの平均ではなく、
+       実際に回答した問題の累積正解数 ÷ 累積回答数で計算します。
+       時間切れなどで未回答の問題は、累積回答数には含めません。 */
+    var cumulativeAnswered = 0;
+    var cumulativeCorrect = 0;
+
+    if (Array.isArray(STATE.history)) {
+      STATE.history.forEach(function(h){
+        if (h.answered != null) {
+          cumulativeAnswered += Number(h.answered) || 0;
+          cumulativeCorrect += Number(h.correct) || 0;
+        }
+      });
+    }
+
+    byId('stat-total-attempts').textContent = cumulativeAnswered;
+
+    if(cumulativeAnswered > 0){
+      byId('stat-understanding').textContent =
+        Math.round(cumulativeCorrect / cumulativeAnswered * 100);
     } else {
       byId('stat-understanding').textContent = '--';
     }
@@ -610,7 +625,14 @@
     var rawRate = Math.round((correct/total)*100);
     var u = computeUnderstanding(quizState.records);
     var weightedRateForHistory = (u.overall!=null) ? u.overall : (correct/total);
-    STATE.history.push({ ts: Date.now(), category: quizState.category, total: total, correct: correct, weightedRate: weightedRateForHistory });
+    STATE.history.push({
+      ts: Date.now(),
+      category: quizState.category,
+      total: total,
+      answered: quizState.records.length,
+      correct: correct,
+      weightedRate: weightedRateForHistory
+    });
     saveState(STATE);
     byId('result-cat-label').textContent = quizState.isWrongReview ? '間違った問題の復習' :
       (quizState.mode === 'full-mock' ? '全8章 本番模試' : (CATEGORY_SHORT[quizState.category] || quizState.category));
