@@ -468,7 +468,7 @@
     if(pool.length===0){ alert('模擬問題がまだ登録されていません。'); return; }
     quizState = {
       questions: shuffle(pool).slice(0, Math.min(60, pool.length)),
-      index: 0, correctCount: 0, records: [],
+      index: 0, correctCount: 0, records: [], answerLocked: false,
       category: '全8章 本番模試', mode: 'full-mock', isWrongReview: false,
       timeLimit: null
     };
@@ -485,7 +485,7 @@
     var count = Math.min(mode === 'basic' ? 10 : 5, pool.length); // 模擬問題は5問に設定
     quizState = {
       questions: shuffle(pool).slice(0, count),
-      index: 0, correctCount: 0, records: [],
+      index: 0, correctCount: 0, records: [], answerLocked: false,
       category: category, mode: mode, isWrongReview: false,
       timeLimit: MODE_TIME_LIMIT[mode] || null
     };
@@ -498,7 +498,7 @@
     if(wrongQs.length===0) return;
     quizState = {
       questions: shuffle(wrongQs).slice(0, Math.min(10, wrongQs.length)),
-      index: 0, correctCount: 0, records: [],
+      index: 0, correctCount: 0, records: [], answerLocked: false,
       category: '間違った問題の復習', mode: 'review', isWrongReview: true,
       timeLimit: null
     };
@@ -507,6 +507,9 @@
     startTimer(quizState.timeLimit);
   }
   function renderQuestion(){
+    /* 次の問題になったら回答ロックを解除 */
+    quizState.answerLocked = false;
+
     var qs = quizState.questions, i = quizState.index, q = qs[i];
     byId('quiz-progress-text').textContent = '問題 ' + (i+1) + '/' + qs.length;
     byId('quiz-score-text').textContent = '正解 ' + quizState.correctCount;
@@ -551,12 +554,19 @@
     btn.disabled = true;
   });
   function handleAnswer(selectedIdx){
+    /* 1問につき回答は1回だけ。最初の選択後は再選択不可 */
+    if (quizState.answerLocked) return;
+    quizState.answerLocked = true;
+
     var qs = quizState.questions, q = qs[quizState.index];
     var correctIdx = q.correctAnswerIndex;
     var isCorrect = (selectedIdx === correctIdx);
     var optBtns = byId('quiz-options').querySelectorAll('.option-btn');
     optBtns.forEach(function(btn, idx){
-      btn.classList.add('locked'); btn.onclick = null;
+      btn.classList.add('locked');
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+      btn.onclick = null;
       if(idx === correctIdx) btn.classList.add('correct');
       else if(idx === selectedIdx) btn.classList.add('incorrect');
       else btn.classList.add('dim');
