@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>G検定対策（2026年度版）</title>
+<title>G検定対策アプリ（分割データ版・basic/mock対応）</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2563eb">
 <meta name="mobile-web-app-capable" content="yes">
@@ -235,7 +235,7 @@
       <button class="btn btn-secondary" id="btn-weak-back">🏠 カテゴリ選択へ</button>
     </div>
   </div>
-  <footer class="foot">G検定対策【最新版】2026年シラバス対応【<span id="footer-question-count">0</span>問収録】</footer>
+  <footer class="foot">G検定対策アプリ「【最新版】2026年シラバス対応【<span id="footer-question-count">0</span>問収録】」</footer>
 </div>
 <!--
   ================================================================
@@ -289,6 +289,7 @@
     }catch(e){}
     return {
       wrongIds: [],
+      masteredIds: [],
       history: [],
       catStats: {},
       keywordStats: {}
@@ -296,6 +297,8 @@
   }
   function saveState(s){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }catch(e){} }
   var STATE = loadState();
+  // 旧バージョンの学習履歴にも対応する
+  if(!Array.isArray(STATE.masteredIds)) STATE.masteredIds = [];
   function byId(id){ return document.getElementById(id); }
   function shuffle(arr){
     var a = arr.slice();
@@ -413,12 +416,13 @@
         : '📚 章を選んで模擬問題を出題';
       CATEGORY_ORDER.forEach(function(cat){
         var bucket = byCategory[cat] || {basic:[], mock:[]};
-        var pool = currentMode === 'basic' ? bucket.basic : bucket.mock;
+        var allPool = currentMode === 'basic' ? bucket.basic : bucket.mock;
+        var pool = allPool.filter(function(q){ return STATE.masteredIds.indexOf(q.id) === -1; });
         var btn = document.createElement('button');
         btn.className = 'cat-btn' + (pool.length===0 ? ' disabled':'');
         var detail = currentMode === 'basic'
-          ? bucket.basic.length + '問収録'
-          : bucket.mock.length + '問収録';
+          ? '未正解 ' + pool.length + '問 / 全' + allPool.length + '問'
+          : '未正解 ' + pool.length + '問 / 全' + allPool.length + '問';
         btn.innerHTML = '<span>'+cat+'</span><span class="meta"><span class="count">'+detail+'</span></span>';
         if(pool.length>0){
           btn.addEventListener('click', function(){ startQuiz(cat, currentMode); });
@@ -426,26 +430,11 @@
         list.appendChild(btn);
       });
     }
-    /* 総合理解度は、セッションごとの平均ではなく、
-       実際に回答した問題の累積正解数 ÷ 累積回答数で計算します。
-       時間切れなどで未回答の問題は、累積回答数には含めません。 */
-    var cumulativeAnswered = 0;
-    var cumulativeCorrect = 0;
-
-    if (Array.isArray(STATE.history)) {
-      STATE.history.forEach(function(h){
-        if (h.answered != null) {
-          cumulativeAnswered += Number(h.answered) || 0;
-          cumulativeCorrect += Number(h.correct) || 0;
-        }
-      });
-    }
-
-    byId('stat-total-attempts').textContent = cumulativeAnswered;
-
-    if(cumulativeAnswered > 0){
-      byId('stat-understanding').textContent =
-        Math.round(cumulativeCorrect / cumulativeAnswered * 100);
+    var totalAttempts = STATE.history.length;
+    byId('stat-total-attempts').textContent = totalAttempts;
+    if(totalAttempts>0){
+      var sumRate = STATE.history.reduce(function(acc,h){ return acc + (h.weightedRate!=null?h.weightedRate:h.correct/h.total); },0);
+      byId('stat-understanding').textContent = Math.round(sumRate/totalAttempts*100);
     } else {
       byId('stat-understanding').textContent = '--';
     }
@@ -463,12 +452,12 @@
     var pool = [];
     CATEGORY_ORDER.forEach(function(cat){
       var bucket = byCategory[cat] || {basic:[], mock:[]};
-      pool = pool.concat(bucket.mock);
+      pool = pool.concat(bucket.mock.filter(function(q){ return STATE.masteredIds.indexOf(q.id) === -1; }));
     });
     if(pool.length===0){ alert('模擬問題がまだ登録されていません。'); return; }
     quizState = {
       questions: shuffle(pool).slice(0, Math.min(60, pool.length)),
-      index: 0, correctCount: 0, records: [], answerLocked: false,
+      index: 0, correctCount: 0, records: [],
       category: '全8章 本番模試', mode: 'full-mock', isWrongReview: false,
       timeLimit: null
     };
@@ -481,11 +470,16 @@
   var MODE_TIME_LIMIT = { 'basic': 300, 'chapter-mock': 300 };
   function startQuiz(category, mode){
     var bucket = byCategory[category] || {basic:[], mock:[]};
-    var pool = mode === 'basic' ? bucket.basic : bucket.mock; // chapter-mockはmockのみ対象
+    var sourcePool = mode === 'basic' ? bucket.basic : bucket.mock; // chapter-mockはmockのみ対象
+    var pool = sourcePool.filter(function(q){ return STATE.masteredIds.indexOf(q.id) === -1; });
+    if(pool.length===0){
+      alert('この範囲は全問正解済みです。学習履歴をリセットすると再出題できます。');
+      return;
+    }
     var count = Math.min(mode === 'basic' ? 10 : 5, pool.length); // 模擬問題は5問に設定
     quizState = {
       questions: shuffle(pool).slice(0, count),
-      index: 0, correctCount: 0, records: [], answerLocked: false,
+      index: 0, correctCount: 0, records: [],
       category: category, mode: mode, isWrongReview: false,
       timeLimit: MODE_TIME_LIMIT[mode] || null
     };
@@ -498,7 +492,7 @@
     if(wrongQs.length===0) return;
     quizState = {
       questions: shuffle(wrongQs).slice(0, Math.min(10, wrongQs.length)),
-      index: 0, correctCount: 0, records: [], answerLocked: false,
+      index: 0, correctCount: 0, records: [],
       category: '間違った問題の復習', mode: 'review', isWrongReview: true,
       timeLimit: null
     };
@@ -507,9 +501,6 @@
     startTimer(quizState.timeLimit);
   }
   function renderQuestion(){
-    /* 次の問題になったら回答ロックを解除 */
-    quizState.answerLocked = false;
-
     var qs = quizState.questions, i = quizState.index, q = qs[i];
     byId('quiz-progress-text').textContent = '問題 ' + (i+1) + '/' + qs.length;
     byId('quiz-score-text').textContent = '正解 ' + quizState.correctCount;
@@ -554,19 +545,12 @@
     btn.disabled = true;
   });
   function handleAnswer(selectedIdx){
-    /* 1問につき回答は1回だけ。最初の選択後は再選択不可 */
-    if (quizState.answerLocked) return;
-    quizState.answerLocked = true;
-
     var qs = quizState.questions, q = qs[quizState.index];
     var correctIdx = q.correctAnswerIndex;
     var isCorrect = (selectedIdx === correctIdx);
     var optBtns = byId('quiz-options').querySelectorAll('.option-btn');
     optBtns.forEach(function(btn, idx){
-      btn.classList.add('locked');
-      btn.disabled = true;
-      btn.setAttribute('aria-disabled', 'true');
-      btn.onclick = null;
+      btn.classList.add('locked'); btn.onclick = null;
       if(idx === correctIdx) btn.classList.add('correct');
       else if(idx === selectedIdx) btn.classList.add('incorrect');
       else btn.classList.add('dim');
@@ -587,6 +571,10 @@
     quizState.records.push({ id:q.id, chapter:q.category, keyword:q.keyword, tier:q.tier,
       difficulty:q.difficulty||1, statement:q.statement, correct:isCorrect });
     if(isCorrect) quizState.correctCount++;
+    // 一度正解した問題は、通常出題の候補から除外する
+    if(isCorrect && STATE.masteredIds.indexOf(q.id) === -1){
+      STATE.masteredIds.push(q.id);
+    }
     var idx2 = STATE.wrongIds.indexOf(q.id);
     if(isCorrect){ if(idx2 !== -1) STATE.wrongIds.splice(idx2,1); }
     else { if(idx2 === -1) STATE.wrongIds.push(q.id); }
@@ -635,14 +623,7 @@
     var rawRate = Math.round((correct/total)*100);
     var u = computeUnderstanding(quizState.records);
     var weightedRateForHistory = (u.overall!=null) ? u.overall : (correct/total);
-    STATE.history.push({
-      ts: Date.now(),
-      category: quizState.category,
-      total: total,
-      answered: quizState.records.length,
-      correct: correct,
-      weightedRate: weightedRateForHistory
-    });
+    STATE.history.push({ ts: Date.now(), category: quizState.category, total: total, correct: correct, weightedRate: weightedRateForHistory });
     saveState(STATE);
     byId('result-cat-label').textContent = quizState.isWrongReview ? '間違った問題の復習' :
       (quizState.mode === 'full-mock' ? '全8章 本番模試' : (CATEGORY_SHORT[quizState.category] || quizState.category));
@@ -723,7 +704,7 @@
   }
   byId('btn-reset-data').addEventListener('click', function(){
     if(confirm('学習履歴・誤答記録をすべて削除します。よろしいですか？')){
-      STATE = { wrongIds:[], history:[], catStats:{}, keywordStats:{} };
+      STATE = { wrongIds:[], masteredIds:[], history:[], catStats:{}, keywordStats:{} };
       saveState(STATE);
       renderHome();
     }
