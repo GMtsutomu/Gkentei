@@ -308,6 +308,33 @@
     }
     return a;
   }
+  // 解説内の選択肢番号を、シャッフル後の表示順に合わせる
+  function explanationForDisplay(q, displayOptions){
+    var text = String(q.explanation || '');
+    var originalToDisplay = {};
+
+    displayOptions.forEach(function(option, displayIndex){
+      originalToDisplay[option.originalIndex + 1] = displayIndex + 1;
+    });
+
+    // 「選択肢1」「選択肢1と3」「選択肢1、2、4」などを表示順へ変換する。
+    text = text.replace(/選択肢([1-4](?:\s*(?:、|・|と|または|および|及び)\s*[1-4])*)/g,
+      function(match, numberPart){
+        return '選択肢' + numberPart.replace(/[1-4]/g, function(n){
+          return String(originalToDisplay[Number(n)] || n);
+        });
+      }
+    );
+
+    // 正解文は番号だけに依存せず、正解の選択肢本文も必ず表示する。
+    var correctText = q.options[q.correctAnswerIndex];
+    if(correctText && !text.startsWith('正解は「' + correctText + '」')){
+      text = text.replace(/^正解は選択肢[1-4]です。?\s*/, '');
+      text = '正解は「' + correctText + '」です。' + text;
+    }
+
+    return text;
+  }
   function show(id){ byId(id).classList.remove('hidden'); }
   function hide(id){ byId(id).classList.add('hidden'); }
   function showOnly(id){
@@ -512,11 +539,16 @@
     byId('quiz-question').textContent = q.statement;
     var optWrap = byId('quiz-options');
     optWrap.innerHTML = '';
-    q.options.forEach(function(opt, idx){
+    // 選択肢の文章と元の位置をセットで並べ替える（元データは変更しない）。
+    quizState.displayOptions = shuffle(q.options.map(function(opt, originalIndex){
+      return { text: opt, originalIndex: originalIndex };
+    }));
+    quizState.answered = false;
+    quizState.displayOptions.forEach(function(option, displayIndex){
       var b = document.createElement('button');
       b.className = 'option-btn';
-      b.innerHTML = '<span class="idx">'+(idx+1)+'</span><span>'+escapeHtml(opt)+'</span>';
-      b.addEventListener('click', function(){ handleAnswer(idx); });
+      b.innerHTML = '<span class="idx">'+(displayIndex+1)+'</span><span>'+escapeHtml(option.text)+'</span>';
+      b.addEventListener('click', function(){ handleAnswer(displayIndex); });
       optWrap.appendChild(b);
     });
     byId('quiz-feedback').innerHTML = '';
@@ -545,8 +577,12 @@
     btn.disabled = true;
   });
   function handleAnswer(selectedIdx){
+    if(quizState.answered) return; // 二重回答を防ぐ
+    quizState.answered = true;
     var qs = quizState.questions, q = qs[quizState.index];
-    var correctIdx = q.correctAnswerIndex;
+    var correctIdx = quizState.displayOptions.findIndex(function(option){
+      return option.originalIndex === q.correctAnswerIndex;
+    });
     var isCorrect = (selectedIdx === correctIdx);
     var optBtns = byId('quiz-options').querySelectorAll('.option-btn');
     optBtns.forEach(function(btn, idx){
@@ -562,8 +598,11 @@
     title.className = 'feedback-title ' + (isCorrect?'correct':'incorrect');
     title.textContent = isCorrect ? '✅ 正解です！' : '❌ 不正解';
     var exp = document.createElement('div');
-    exp.className = 'explanation'; exp.textContent = q.explanation;
-    box.appendChild(title); box.appendChild(exp); fb.appendChild(box);
+    exp.className = 'explanation';
+    exp.textContent = explanationForDisplay(q, quizState.displayOptions);
+    box.appendChild(title);
+    box.appendChild(exp);
+    fb.appendChild(box);
     show('quiz-next-wrap');
     // 正解した場合のみ「自信なし・復習リストに追加」ボタンを表示する
     if(isCorrect){ show('quiz-unsure-wrap'); } else { hide('quiz-unsure-wrap'); }
